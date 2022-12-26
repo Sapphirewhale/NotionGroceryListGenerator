@@ -125,7 +125,7 @@ def add_item(ingredient):
         "Content-Type": "application/json"
     }, data=json.dumps(payload))
     if r.status_code != 200:
-        print("An error occured:")
+        print("An error occurred:")
         print(r.json())
     else:
         print(r.status_code)
@@ -192,55 +192,58 @@ r = requests.post(url, headers={
 
 
 if __name__ == '__main__':
+    try:
+        if os.path.exists("./persistence.json"):
+            persistence = {}
+            with open("./persistence.json", 'r') as f:
+                persistence = json.load(f)
+            answer = input(
+                "Would you like to reuse the links from the last time this script ran? (y/n):")
+            if answer == 'y':
+                meal_plan_id = persistence['meal_plan_id']
+                grocery_list_id = persistence['grocery_list_id']
+        if meal_plan_id == "" or grocery_list_id == "":
+            meal_plan_url = input(
+                "Please paste the link to the meal plan you need to generate a grocery list from:")
+            grocery_list_url = input(
+                "Please paste the link to the grocery list where you would like the generated items to be added:")
+            if len(meal_plan_url.split('/')) > 0:
+                print("Processing meal plan URL to get DB ID...")
+                meal_plan_id = meal_plan_url.split('/')[-1].split('?v=')[0]
+                print(f"Meal Plan ID: {meal_plan_id}")
+            else:
+                meal_plan_id = meal_plan_url
 
-    if os.path.exists("./persistence.json"):
-        persistence = {}
-        with open("./persistence.json", 'r') as f:
-            persistence = json.load(f)
-        answer = input(
-            "Would you like to reuse the links from the last time this script ran? (y/n):")
-        if answer == 'y':
-            meal_plan_id = persistence['meal_plan_id']
-            grocery_list_id = persistence['grocery_list_id']
-    if meal_plan_id == "" or grocery_list_id == "":
-        meal_plan_url = input(
-            "Please paste the link to the meal plan you need to generate a grocery list from:")
-        grocery_list_url = input(
-            "Please paste the link to the grocery list where you would like the generated items to be added:")
-        if len(meal_plan_url.split('/')) > 0:
-            print("Processing meal plan URL to get DB ID...")
-            meal_plan_id = meal_plan_url.split('/')[-1].split('?v=')[0]
-            print(f"Meal Plan ID: {meal_plan_id}")
-        else:
-            meal_plan_id = meal_plan_url
+            if len(grocery_list_url.split('/')) > 0:
+                print("Processing meal plan URL to get DB ID...")
+                grocery_list_id = grocery_list_url.split(
+                    '/')[-1].split('?v=')[0]
+                print(f"Grocery List ID: {grocery_list_id}")
+            else:
+                grocery_list_id = grocery_list_url
+            with open("./persistence.json", 'w') as f:
+                json.dump({
+                    'last_run': datetime.now().strftime("%c"),
+                    'meal_plan_id': meal_plan_id,
+                    'grocery_list_id': grocery_list_id
+                }, f)
 
-        if len(grocery_list_url.split('/')) > 0:
-            print("Processing meal plan URL to get DB ID...")
-            grocery_list_id = grocery_list_url.split(
-                '/')[-1].split('?v=')[0]
-            print(f"Grocery List ID: {grocery_list_id}")
-        else:
-            grocery_list_id = grocery_list_url
-        with open("./persistence.json", 'w') as f:
-            json.dump({
-                'last_run': datetime.now().strftime("%c"),
-                'meal_plan_id': meal_plan_id,
-                'grocery_list_id': grocery_list_id
-            }, f)
-
-    recipes = get_recipes()
-    meal_list = get_meal_list()
-    ingredients = {}
-    for meal in meal_list:
-        if meal in recipes.keys():
-            ingredients = add_dict(
-                ingredients, get_ingredients(recipes[meal], meal))
-        elif meal in ingredients.keys():
-            ingredients[meal].quantity += 1
-        elif meal != "leftovers":
-            print(
-                f"Couldn't find {meal} in recipe list, adding directly to shopping list")
-            ingredients[meal] = Ingredient(meal, 1)
-    sync_ingredients(ingredients)
-    print([str(i) for i in ingredients.values()])
-    update_notion(ingredients)
+        recipes = get_recipes()
+        meal_list = get_meal_list()
+        ingredients = {}
+        for meal in meal_list:
+            if meal in recipes.keys():
+                ingredients = add_dict(
+                    ingredients, get_ingredients(recipes[meal], meal))
+            elif meal in ingredients.keys():
+                ingredients[meal].quantity += 1
+            elif meal != "leftovers":
+                print(
+                    f"Couldn't find {meal} in recipe list, adding directly to shopping list")
+                ingredients[meal] = Ingredient(meal, 1)
+        sync_ingredients(ingredients)
+        print([str(i) for i in ingredients.values()])
+        update_notion(ingredients)
+    except Exception as e:
+        print(e)
+        input("Press any key to exit...")

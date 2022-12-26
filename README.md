@@ -5,7 +5,7 @@ This was built and expanded with a few features in a very adhoc manner, so the c
 
 ## Setup
 
-There is some setup required in Notion, including having a list of recipies with ingredients tables included, as well as the mealplan and grocery list pages.
+There is some setup required in Notion, including having a list of recipes with ingredients tables included, as well as the meal plan and grocery list pages.
 
 To run the script, first create a python virtual environment:
 
