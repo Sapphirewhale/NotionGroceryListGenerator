@@ -3,11 +3,50 @@ import json
 import requests
 import os
 
-token = ""
-recipes_page = ""
-meal_plan_id = ""
-grocery_list_id = ""
-ingredients_directory = ""
+
+class NotionAPI:
+    def __init__(self, token) -> None:
+        self.token = token
+
+    def _headers(self):
+        return {
+            "Authorization": f"Bearer {self.token}",
+            "Notion-Version": "2021-08-16",
+            "Content-Type": "application/json",
+        }
+
+    def _get(self, uri):
+        r = requests.get(
+            uri,
+            headers=self._headers(),
+        )
+        if r.status_code >= requests.codes.bad_request:
+            print("An error occurred:")
+            print(r.json())
+        return r.json()
+
+    def _post(self, uri, data={}):
+        r = requests.post(uri, headers=self._headers(), data=json.dumps(data))
+
+        if r.status_code >= requests.codes.bad_request:
+            print("An error occurred:")
+            print(r.json())
+        return r.json()
+
+    def get_page(self, id):
+        return self._get(f"https://api.notion.com/v1/pages/{id}")
+
+    def get_database(self, id):
+        return self._get(f"https://api.notion.com/v1/databases/{id}")
+
+    def get_blocks(self, id):
+        return self._get(f"https://api.notion.com/v1/blocks/{id}/children")
+
+    def query(self, id):
+        return self._post(f"https://api.notion.com/v1/databases/{id}/query")
+
+    def create_page(self, payload):
+        return self._post("https://api.notion.com/v1/pages", payload)
 
 
 class Ingredient:
@@ -27,223 +66,190 @@ class Ingredient:
         if not isinstance(o, Ingredient):
             return super(o)
         else:
-            return Ingredient(self.name, self.quantity+o.quantity, self.recipes+o.recipes, self.shop)
+            return Ingredient(
+                self.name,
+                self.quantity + o.quantity,
+                self.recipes + o.recipes,
+                self.shop,
+            )
+
+    def get_properties(self):
+        return {
+            "Name": {"title": [{"text": {"content": self.name}}]},
+            "Quantity": {"number": self.quantity},
+            "Recipes": {
+                "multi_select": [
+                    {
+                        "name": rec,
+                    }
+                    for rec in self.recipes
+                ]
+            },
+        }
 
     def __str__(self) -> str:
         return f"{self.name}, {self.quantity}, {self.recipes}, {self.shop}"
 
 
-def get_recipes():
-    url = f'https://api.notion.com/v1/databases/{recipes_page}/query'
+class NotionGroceryListGenerator:
+    token = ""
 
-    r = requests.post(url, headers={
-        "Authorization": f"Bearer {token}",
-        "Notion-Version": "2021-08-16"
-    })
+    def __init__(
+        self,
+        recipes_page: str,
+        ingredients_directory: str,
+        meal_plan_page: str,
+        grocery_list_page: str,
+    ) -> None:
+        self._notion = NotionAPI(self.token)
+        self._recipes_page = recipes_page
+        self._ingredients_directory = ingredients_directory
+        self._meal_plan_id = self.get_meal_plan_id(meal_plan_page)
+        self._grocery_list_id = self.get_grocery_list_id(grocery_list_page)
 
-    recipes = {}
-    result_dict = r.json()
-    for record in result_dict['results']:
-        if len(record['properties']['Ingredients']['rich_text']) > 0:
-            recipes[record['properties']['Dish']['title']
-                    [0]['plain_text'].lower().strip()] = record['properties']['Ingredients']['rich_text'][0]['plain_text']
-    return recipes
+    def get_meal_plan_id(self, page):
+        dropdown_id = self._notion.get_blocks(page)["results"][1]["id"]
+        return self._notion.get_blocks(dropdown_id)["results"][0]["id"]
 
+    def get_grocery_list_id(self, page):
+        dropdown_id = self._notion.get_blocks(page)["results"][2]["id"]
+        return self._notion.get_blocks(dropdown_id)["results"][0]["id"]
 
-def get_ingredients(dbid, meal):
-    url = f'https://api.notion.com/v1/databases/{dbid}/query'
-    r = requests.post(url, headers={
-        "Authorization": f"Bearer {token}",
-        "Notion-Version": "2021-08-16"
-    })
+    def get_recipes(self):
+        r = self._notion.query(self._recipes_page)
 
-    ingredients = {}
-    result_dict = r.json()
-    for record in result_dict['results']:
-        ingredients[record['properties']['Name']['title'][0]['plain_text'].lower().strip()
-                    ] = Ingredient(record['properties']['Name']['title'][0]['plain_text'].lower().strip(), record['properties']['Quantity']['number'], recipes=meal)
-    return ingredients
+        recipes = {}
+        for record in r["results"]:
+            recipes[
+                record["properties"]["Dish"]["title"][0]["plain_text"].lower().strip()
+            ] = record["id"]
+        return recipes
 
+    def get_ingredients_db_link(self, meal_page_id):
+        blocks = self._notion.get_blocks(meal_page_id)
+        for block in blocks["results"]:
+            if block["type"] == "toggle":
+                child_blocks = self._notion.get_blocks(block["id"])
+                for child_block in child_blocks["results"]:
+                    if child_block["type"] == "child_database":
+                        return child_block["id"]
 
-def get_meal_list():
-    url = f'https://api.notion.com/v1/databases/{meal_plan_id}/query'
-    r = requests.post(url, headers={
-        "Authorization": f"Bearer {token}",
-        "Notion-Version": "2021-08-16"
-    })
+    def get_ingredients(self, recipes, meal):
+        dbid = self.get_ingredients_db_link(recipes[meal])
+        r = self._notion.query(dbid)
 
-    meals = []
-    result_dict = r.json()
-    for record in result_dict['results']:
-        meals.append(record['properties']['Name']
-                     ['title'][0]['plain_text'].lower().strip())
-    return meals
+        ingredients = {}
+        for record in r["results"]:
+            ingredients[
+                record["properties"]["Name"]["title"][0]["plain_text"].lower().strip()
+            ] = Ingredient(
+                record["properties"]["Name"]["title"][0]["plain_text"].lower().strip(),
+                record["properties"]["Quantity"]["number"],
+                recipes=meal,
+            )
+        return ingredients
 
+    def get_meal_list(self):
+        r = self._notion.query(self._meal_plan_id)
 
-def add_dict(dict1, dict2):
-    for key in dict1.keys():
-        if key in dict2.keys():
-            dict1[key] = dict1[key]+dict2[key]
-    for key in dict2.keys():
-        if key not in dict1.keys():
-            dict1[key] = dict2[key]
-    return dict1
+        meals = []
+        for record in r["results"]:
+            meals.append(
+                record["properties"]["Name"]["title"][0]["plain_text"].lower().strip()
+            )
+        return meals
 
+    def add_dict(self, dict1, dict2):
+        for key in dict1.keys():
+            if key in dict2.keys():
+                dict1[key] = dict1[key] + dict2[key]
+        for key in dict2.keys():
+            if key not in dict1.keys():
+                dict1[key] = dict2[key]
+        return dict1
 
-def add_item(ingredient):
-    url = 'https://api.notion.com/v1/pages'
-
-    payload = {
-        "parent": {
-            "database_id": grocery_list_id
-        },
-        "properties": {
-            "Name": {
-                "title": [
-                    {
-                        "text": {
-                            "content": ingredient.name
-                        }
-                    }
-                ]
-            },
-            "Quantity": {
-                "number": ingredient.quantity
-            },
-            "Recipes": {
-                "multi_select": [{'name': rec, } for rec in ingredient.recipes]
-            },
+    def add_item(self, ingredient):
+        payload = {
+            "parent": {"database_id": self._grocery_list_id},
+            "properties": ingredient.get_properties(),
         }
-    }
-    if ingredient.shop != None:
-        payload['properties']['Shop'] = {
-            "multi_select": [{'name': ingredient.shop}]
-        }
-    r = requests.post(url, headers={
-        "Authorization": f"Bearer {token}",
-        "Notion-Version": "2021-08-16",
-        "Content-Type": "application/json"
-    }, data=json.dumps(payload))
-    if r.status_code != 200:
-        print("An error occurred:")
-        print(r.json())
-    else:
-        print(r.status_code)
-
-
-def update_notion(shopping_list):
-    for item in shopping_list.values():
-        add_item(item)
-    print(shopping_list)
-
-
-def post_ingredient(ingredient):
-    url = 'https://api.notion.com/v1/pages'
-    payload = {
-        "parent": {
-            "database_id": ingredients_directory
-        },
-        "properties": {
-            "Name": {
-                "title": [
-                    {
-                        "text": {
-                            "content": ingredient.name.lower().strip()
-                        }
-                    }
-                ]
+        if ingredient.shop != None:
+            payload["properties"]["Shop"] = {
+                "multi_select": [{"name": ingredient.shop}]
             }
+        self._notion.create_page(payload)
+
+    def update_notion(self, shopping_list):
+        for item in shopping_list.values():
+            self.add_item(item)
+        print(shopping_list)
+
+    def post_ingredient(self, ingredient):
+        payload = {
+            "parent": {"database_id": self._ingredients_directory},
+            "properties": {
+                "Name": {
+                    "title": [{"text": {"content": ingredient.name.lower().strip()}}]
+                }
+            },
         }
-    }
 
-    r = requests.post(url, headers={
-        "Authorization": f"Bearer {token}",
-        "Notion-Version": "2021-08-16",
-        "Content-Type": "application/json"
-    }, data=json.dumps(payload))
-    print(r)
+        self._notion.create_page(payload)
 
+    def sync_ingredients(self, ingredients):
+        r = self._notion.query(self._ingredients_directory)
 
-def sync_ingredients(ingredients):
-    url = f'https://api.notion.com/v1/databases/{ingredients_directory}/query'
-    r = requests.post(url, headers={
-        "Authorization": f"Bearer {token}",
-        "Notion-Version": "2021-08-16"
-    })
-
-    ingredients_list = {}
-    result_dict = r.json()
-    for record in result_dict['results']:
-        ingredients_list[record['properties']['Name']
-                         ['title'][0]['plain_text'].lower().strip()] = record['properties']['Shop']['multi_select'][0]['name'] if len(record['properties']['Shop']['multi_select']) > 0 else None
-    for ingredient in ingredients.values():
-        if ingredient.name.lower().strip() in ingredients_list.keys() and ingredients_list[ingredient.name.lower().strip()] is not None:
-            ingredient.shop = ingredients_list[ingredient.name.lower().strip()]
-        elif ingredient.name.lower().strip() not in ingredients_list.keys():
-            post_ingredient(ingredient)
+        ingredients_list = {}
+        for record in r["results"]:
+            ingredients_list[
+                record["properties"]["Name"]["title"][0]["plain_text"].lower().strip()
+            ] = (
+                record["properties"]["Shop"]["multi_select"][0]["name"]
+                if len(record["properties"]["Shop"]["multi_select"]) > 0
+                else None
+            )
+        for ingredient in ingredients.values():
+            if (
+                ingredient.name.lower().strip() in ingredients_list.keys()
+                and ingredients_list[ingredient.name.lower().strip()] is not None
+            ):
+                ingredient.shop = ingredients_list[ingredient.name.lower().strip()]
+            elif ingredient.name.lower().strip() not in ingredients_list.keys():
+                self.post_ingredient(ingredient)
 
 
-url = f'https://api.notion.com/v1/databases/{grocery_list_id}/query'
-
-r = requests.post(url, headers={
-    "Authorization": f"Bearer {token}",
-    "Notion-Version": "2021-08-16"
-})
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     try:
-        if os.path.exists("./persistence.json"):
-            persistence = {}
-            with open("./persistence.json", 'r') as f:
-                persistence = json.load(f)
-            answer = input(
-                "Would you like to reuse the links from the last time this script ran? (y/n):")
-            if answer == 'y':
-                meal_plan_id = persistence['meal_plan_id']
-                grocery_list_id = persistence['grocery_list_id']
-        if meal_plan_id == "" or grocery_list_id == "":
-            meal_plan_url = input(
-                "Please paste the link to the meal plan you need to generate a grocery list from:")
-            grocery_list_url = input(
-                "Please paste the link to the grocery list where you would like the generated items to be added:")
-            if len(meal_plan_url.split('/')) > 0:
-                print("Processing meal plan URL to get DB ID...")
-                meal_plan_id = meal_plan_url.split('/')[-1].split('?v=')[0]
-                print(f"Meal Plan ID: {meal_plan_id}")
-            else:
-                meal_plan_id = meal_plan_url
+        print("Generating grocery list...")
+        generator = NotionGroceryListGenerator(
+            recipes_page="5b3e2342-b9a3-4e9e-92b1-e408465d72cb",
+            ingredients_directory="4b21e592-4ae3-4e7d-a611-9f4605ec88f8",
+            meal_plan_page="0aef1273f734400a9409c106e027f411",
+            grocery_list_page="dccdee7581414e629f8c489d9df53f87",
+        )
 
-            if len(grocery_list_url.split('/')) > 0:
-                print("Processing meal plan URL to get DB ID...")
-                grocery_list_id = grocery_list_url.split(
-                    '/')[-1].split('?v=')[0]
-                print(f"Grocery List ID: {grocery_list_id}")
-            else:
-                grocery_list_id = grocery_list_url
-            with open("./persistence.json", 'w') as f:
-                json.dump({
-                    'last_run': datetime.now().strftime("%c"),
-                    'meal_plan_id': meal_plan_id,
-                    'grocery_list_id': grocery_list_id
-                }, f)
-
-        recipes = get_recipes()
-        meal_list = get_meal_list()
+        print("Getting meal list...")
+        meal_list = generator.get_meal_list()
+        print("Getting recipes...")
+        recipes = generator.get_recipes()
         ingredients = {}
         for meal in meal_list:
+            print(f"Getting ingredients for {meal}...")
             if meal in recipes.keys():
-                ingredients = add_dict(
-                    ingredients, get_ingredients(recipes[meal], meal))
+                ingredients = generator.add_dict(
+                    ingredients, generator.get_ingredients(recipes, meal)
+                )
             elif meal in ingredients.keys():
                 ingredients[meal].quantity += 1
             elif meal != "leftovers":
                 print(
-                    f"Couldn't find {meal} in recipe list, adding directly to shopping list")
+                    f"Couldn't find {meal} in recipe list, adding directly to shopping list"
+                )
                 ingredients[meal] = Ingredient(meal, 1)
-        sync_ingredients(ingredients)
-        print([str(i) for i in ingredients.values()])
-        update_notion(ingredients)
+        print("Adding missing ingredients to ingredients directory...")
+        generator.sync_ingredients(ingredients)
+        print("Sending ingredients list to notion")
+        generator.update_notion(ingredients)
     except Exception as e:
-        print(e)
+        print(repr(e))
         input("Press any key to exit...")
