@@ -85,6 +85,7 @@ class Ingredient:
                     for rec in self.recipes
                 ]
             },
+            "Shop": {"select": None if self.shop == None else {"name": self.shop}},
         }
 
     def __str__(self) -> str:
@@ -168,15 +169,12 @@ class NotionGroceryListGenerator:
                 dict1[key] = dict2[key]
         return dict1
 
-    def add_item(self, ingredient):
+    def add_item(self, ingredient: Ingredient):
         payload = {
             "parent": {"database_id": self._grocery_list_id},
             "properties": ingredient.get_properties(),
         }
-        if ingredient.shop != None:
-            payload["properties"]["Shop"] = {
-                "multi_select": [{"name": ingredient.shop}]
-            }
+
         self._notion.create_page(payload)
 
     def update_notion(self, shopping_list):
@@ -204,8 +202,8 @@ class NotionGroceryListGenerator:
             ingredients_list[
                 record["properties"]["Name"]["title"][0]["plain_text"].lower().strip()
             ] = (
-                record["properties"]["Shop"]["multi_select"][0]["name"]
-                if len(record["properties"]["Shop"]["multi_select"]) > 0
+                record["properties"]["Shop"]["select"]["name"]
+                if record["properties"]["Shop"]["select"] != None
                 else None
             )
         for ingredient in ingredients.values():
