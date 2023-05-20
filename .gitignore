@@ -4,3 +4,4 @@ venv
 *.spec
 dist/
 build/
+config.json

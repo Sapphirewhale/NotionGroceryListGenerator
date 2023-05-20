@@ -93,15 +93,15 @@ class Ingredient:
 
 
 class NotionGroceryListGenerator:
-    token = ""
-
     def __init__(
         self,
-        recipes_page: str,
-        ingredients_directory: str,
-        meal_plan_page: str,
-        grocery_list_page: str,
+        recipes_page: str = "",
+        ingredients_directory: str = "",
+        meal_plan_page: str = "",
+        grocery_list_page: str = "",
+        token: str = "",
     ) -> None:
+        self.token = token
         self._notion = NotionAPI(self.token)
         self._recipes_page = recipes_page
         self._ingredients_directory = ingredients_directory
@@ -219,12 +219,9 @@ class NotionGroceryListGenerator:
 if __name__ == "__main__":
     try:
         print("Generating grocery list...")
-        generator = NotionGroceryListGenerator(
-            recipes_page="5b3e2342-b9a3-4e9e-92b1-e408465d72cb",
-            ingredients_directory="4b21e592-4ae3-4e7d-a611-9f4605ec88f8",
-            meal_plan_page="0aef1273f734400a9409c106e027f411",
-            grocery_list_page="dccdee7581414e629f8c489d9df53f87",
-        )
+        with open("config.json", "r") as f:
+            config = json.load(f)
+        generator = NotionGroceryListGenerator(**config)
 
         print("Getting meal list...")
         meal_list = generator.get_meal_list()
