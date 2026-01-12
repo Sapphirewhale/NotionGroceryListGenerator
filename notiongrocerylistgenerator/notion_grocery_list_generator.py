@@ -41,7 +41,10 @@ class NotionGroceryListGenerator:
                         return child_block["id"]
 
     def get_ingredients(self, recipes, meal):
-        dbid = self.get_ingredients_db_link(recipes[meal])
+        if "|||" in meal:
+            dbid = self.get_ingredients_db_link(meal.split("|||")[-1])
+        else:
+            dbid = self.get_ingredients_db_link(recipes[meal])
         if dbid is None:
             return
         r = self._notion.query(dbid)
@@ -62,9 +65,12 @@ class NotionGroceryListGenerator:
 
         meals = []
         for record in r["results"]:
-            meals.append(
-                record["properties"]["Name"]["title"][0]["plain_text"].lower().strip()
-            )
+            meal_name = record["properties"]["Name"]["title"][0]["plain_text"].lower().strip()
+            if len(record['properties']['Recipe']['relation']) == 0:
+                meals.append(meal_name)
+            else:
+                meals.append(meal_name + "|||" +r['results'][1]['properties']['Recipe']['relation'][0]['id'])
+
         return meals
 
     def add_dict(self, dict1, dict2):
@@ -140,7 +146,7 @@ if __name__ == "__main__":
         ingredients = {}
         for meal in meal_list:
             print(f"Getting ingredients for {meal}...")
-            if meal in recipes.keys():
+            if meal in recipes.keys() or "|||" in meal:
                 meal_ingredients = generator.get_ingredients(recipes, meal)
                 if meal_ingredients != None:
                     ingredients = generator.add_dict(
