@@ -4,6 +4,7 @@ Version: 0.1.0
 Summary: Add your description here
 Requires-Python: >=3.12
 Description-Content-Type: text/markdown
+Requires-Dist: browser-cookie3>=0.20.1
 Requires-Dist: requests>=2.32.5
 
 ## Intro

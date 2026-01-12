@@ -1,0 +1,2 @@
+[console_scripts]
+grocery_shop = notiongrocerylistgenerator.cli.woolworths_groceries:main
