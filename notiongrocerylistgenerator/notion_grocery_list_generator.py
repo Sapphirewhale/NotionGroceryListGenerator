@@ -1,6 +1,7 @@
 import json
 from notiongrocerylistgenerator.notion_api import NotionApi
 import os
+from notiongrocerylistgenerator.grocery_apis.woolworths import WoolworthsApi
 from notiongrocerylistgenerator.Ingredient import Ingredient
 
 class NotionGroceryListGenerator:
@@ -75,19 +76,6 @@ class NotionGroceryListGenerator:
                 dict1[key] = dict2[key]
         return dict1
 
-    def add_item(self, ingredient: Ingredient):
-        payload = {
-            "parent": {"database_id": self._grocery_list_id},
-            "properties": ingredient.get_properties(),
-        }
-
-        self._notion.create_page(payload)
-
-    def update_notion(self, shopping_list):
-        for item in shopping_list.values():
-            self.add_item(item)
-        print(shopping_list)
-
     def post_ingredient(self, ingredient):
         payload = {
             "parent": {"database_id": self._ingredients_directory},
@@ -105,22 +93,38 @@ class NotionGroceryListGenerator:
 
         ingredients_list = {}
         for record in r["results"]:
-            ingredients_list[
-                record["properties"]["Name"]["title"][0]["plain_text"].lower().strip()
-            ] = (
-                record["properties"]["Preferred Shop"]["select"]["name"]
-                if record["properties"]["Preferred Shop"]["select"] != None
-                else None
-            )
+            props = record["properties"]
+            ingredient_name = props["Name"]["title"][0]["plain_text"].lower().strip()
+            preferred_shop = props["Preferred Shop"]["select"]
+            if preferred_shop != None:
+                preferred_shop = preferred_shop.get("name")
+            
+                shop_quantity = props[f"{preferred_shop} Quantity"]["number"]
+
+                shop_link = props[f"{preferred_shop} Link"]["rich_text"]
+                if len(shop_link)>0:
+                    shop_link = shop_link[0]['text']['content']
+                else:
+                    shop_link = None
+                ingredients_list[
+                    ingredient_name
+                ] = (
+                    preferred_shop,
+                    shop_link,
+                    shop_quantity
+                    )
+            else:
+                print(f'No shop selected for {ingredient_name}, please add the details in the ingredients DB')
+                ingredients_list[ingredient_name] = None
         for ingredient in ingredients.values():
             if (
                 ingredient.name.lower().strip() in ingredients_list.keys()
                 and ingredients_list[ingredient.name.lower().strip()] is not None
             ):
-                ingredient.shop = ingredients_list[ingredient.name.lower().strip()]
+                ingredient.shop, ingredient.shop_link, ingredient.shop_quantity = ingredients_list[ingredient.name.lower().strip()]
             elif ingredient.name.lower().strip() not in ingredients_list.keys():
+                print(f"Adding {ingredient.name} to the ingredient DB for the first time, please add shop details and rerun")
                 self.post_ingredient(ingredient)
-
 
 if __name__ == "__main__":
     try:
@@ -154,7 +158,8 @@ if __name__ == "__main__":
         print("Adding missing ingredients to ingredients directory...")
         generator.sync_ingredients(ingredients)
         print("Sending ingredients list to shop")
-        generator.update_notion(ingredients)
+        
+        WoolworthsApi().add_ingredients_to_trolley(ingredients)
     except Exception as e:
         print(repr(e))
         input("Press any key to exit...")
