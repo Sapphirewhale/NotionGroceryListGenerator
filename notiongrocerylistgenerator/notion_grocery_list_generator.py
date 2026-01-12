@@ -1,53 +1,6 @@
-from datetime import datetime, timedelta
 import json
-import requests
+from notiongrocerylistgenerator.notion_api import NotionApi
 import os
-
-
-class NotionAPI:
-    def __init__(self, token) -> None:
-        self.token = token
-
-    def _headers(self):
-        return {
-            "Authorization": f"Bearer {self.token}",
-            "Notion-Version": "2021-08-16",
-            "Content-Type": "application/json",
-        }
-
-    def _get(self, uri):
-        r = requests.get(
-            uri,
-            headers=self._headers(),
-        )
-        if r.status_code >= requests.codes.bad_request:
-            print("An error occurred:")
-            print(r.json())
-        return r.json()
-
-    def _post(self, uri, data={}):
-        r = requests.post(uri, headers=self._headers(), data=json.dumps(data))
-
-        if r.status_code >= requests.codes.bad_request:
-            print("An error occurred:")
-            print(r.json())
-        return r.json()
-
-    def get_page(self, id):
-        return self._get(f"https://api.notion.com/v1/pages/{id}")
-
-    def get_database(self, id):
-        return self._get(f"https://api.notion.com/v1/databases/{id}")
-
-    def get_blocks(self, id):
-        return self._get(f"https://api.notion.com/v1/blocks/{id}/children")
-
-    def query(self, id):
-        return self._post(f"https://api.notion.com/v1/databases/{id}/query")
-
-    def create_page(self, payload):
-        return self._post("https://api.notion.com/v1/pages", payload)
-
 
 class Ingredient:
     def __init__(self, name, quantity, recipes=None, shop=None) -> None:
@@ -97,20 +50,13 @@ class NotionGroceryListGenerator:
         self,
         recipes_page: str = "",
         ingredients_directory: str = "",
-        meal_plan_page: str = "",
-        grocery_list_page: str = "",
-        token: str = "",
+        meal_plan_page: str = ""
     ) -> None:
-        self.token = token
-        self._notion = NotionAPI(self.token)
+        self.token = os.environ.get('notion_api_key')
+        self._notion = NotionApi(self.token)
         self._recipes_page = recipes_page
         self._ingredients_directory = ingredients_directory
-        self._meal_plan_id = self.get_meal_plan_id(meal_plan_page)
-        self._grocery_list_id = self.get_grocery_list_id(grocery_list_page)
-
-    def get_meal_plan_id(self, page):
-        dropdown_id = self._notion.get_blocks(page)["results"][1]["id"]
-        return self._notion.get_blocks(dropdown_id)["results"][0]["id"]
+        self._meal_plan_id = meal_plan_page
 
     def get_grocery_list_id(self, page):
         dropdown_id = self._notion.get_blocks(page)["results"][2]["id"]
@@ -137,6 +83,8 @@ class NotionGroceryListGenerator:
 
     def get_ingredients(self, recipes, meal):
         dbid = self.get_ingredients_db_link(recipes[meal])
+        if dbid is None:
+            return
         r = self._notion.query(dbid)
 
         ingredients = {}
@@ -202,8 +150,8 @@ class NotionGroceryListGenerator:
             ingredients_list[
                 record["properties"]["Name"]["title"][0]["plain_text"].lower().strip()
             ] = (
-                record["properties"]["Shop"]["select"]["name"]
-                if record["properties"]["Shop"]["select"] != None
+                record["properties"]["Preferred Shop"]["select"]["name"]
+                if record["properties"]["Preferred Shop"]["select"] != None
                 else None
             )
         for ingredient in ingredients.values():
@@ -231,9 +179,13 @@ if __name__ == "__main__":
         for meal in meal_list:
             print(f"Getting ingredients for {meal}...")
             if meal in recipes.keys():
-                ingredients = generator.add_dict(
-                    ingredients, generator.get_ingredients(recipes, meal)
-                )
+                meal_ingredients = generator.get_ingredients(recipes, meal)
+                if meal_ingredients != None:
+                    ingredients = generator.add_dict(
+                        ingredients, meal_ingredients
+                    )
+                else:
+                    print(f"{meal} doesn't have an ingredients database! Please add one so that the ingredients can be added to the shopping list")
             elif meal in ingredients.keys():
                 ingredients[meal].quantity += 1
             elif meal != "leftovers":
@@ -243,7 +195,7 @@ if __name__ == "__main__":
                 ingredients[meal] = Ingredient(meal, 1)
         print("Adding missing ingredients to ingredients directory...")
         generator.sync_ingredients(ingredients)
-        print("Sending ingredients list to notion")
+        print("Sending ingredients list to shop")
         generator.update_notion(ingredients)
     except Exception as e:
         print(repr(e))

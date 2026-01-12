@@ -1,0 +1,10 @@
+README.md
+pyproject.toml
+notiongrocerylistgenerator/main.py
+notiongrocerylistgenerator/notion_api.py
+notiongrocerylistgenerator/notion_grocery_list_generator.py
+notiongrocerylistgenerator.egg-info/PKG-INFO
+notiongrocerylistgenerator.egg-info/SOURCES.txt
+notiongrocerylistgenerator.egg-info/dependency_links.txt
+notiongrocerylistgenerator.egg-info/requires.txt
+notiongrocerylistgenerator.egg-info/top_level.txt
